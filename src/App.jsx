@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import OrderRows from './features/orderbook/components/OrderRows'
 import MarketChart from './features/chart/MarketChart'
 import RecentTrades from './features/trades/RecentTrades'
+import OrderActivity from './features/orders/OrderActivity'
 
 
 const asks = [
@@ -409,6 +410,8 @@ useEffect(() => {
           </div>
         </article>
       </section>
+
+      <OrderActivity />
 
       <footer className="px-5 pb-6 pt-2 text-center text-[11px] text-gray-500">
         Demo interface · No real orders are placed · Market data is illustrative
