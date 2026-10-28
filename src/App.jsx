@@ -274,6 +274,142 @@ useEffect(() => {
         <RecentTrades />
       </section>
 
+      <section className="px-2 pb-5">
+        <article className="rounded border border-[#2b3139] bg-[#161a1e]">
+          <div className="border-b border-[#2b3139] px-4 py-3">
+            <h2 className="text-sm font-semibold">Demo Order Entry</h2>
+            <p className="mt-1 text-[11px] text-gray-500">
+              Frontend prototype · No real orders are submitted
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 p-4 md:grid-cols-2">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  ['buy', 'Buy BTC'],
+                  ['sell', 'Sell BTC'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setOrderSide(value)}
+                    aria-pressed={orderSide === value}
+                    className={`rounded px-3 py-2 text-sm font-semibold ${
+                      orderSide === value
+                        ? value === 'buy'
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-rose-500 text-white'
+                        : 'border border-[#2b3139] text-gray-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  ['limit', 'Limit'],
+                  ['market', 'Market'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setOrderType(value)}
+                    aria-pressed={orderType === value}
+                    className={`rounded border px-3 py-2 text-xs ${
+                      orderType === value
+                        ? 'border-yellow-400 text-yellow-400'
+                        : 'border-[#2b3139] text-gray-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {orderType === 'limit' && (
+                <label className="block text-xs text-gray-400">
+                  Price (USDT)
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={orderPrice}
+                    onChange={(event) => setOrderPrice(event.target.value)}
+                    placeholder="Enter limit price"
+                    className="mt-2 w-full rounded border border-[#2b3139] bg-[#0b0e11] px-3 py-2.5 text-sm text-white outline-none focus:border-yellow-400"
+                  />
+                </label>
+              )}
+
+              <label className="block text-xs text-gray-400">
+                Amount (BTC)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.00000001"
+                  value={orderQuantity}
+                  onChange={(event) => setOrderQuantity(event.target.value)}
+                  placeholder="Enter BTC quantity"
+                  className="mt-2 w-full rounded border border-[#2b3139] bg-[#0b0e11] px-3 py-2.5 text-sm text-white outline-none focus:border-yellow-400"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-col">
+              <div className="flex items-center justify-between border-b border-[#2b3139] py-3 text-xs">
+                <span className="text-gray-400">Order type</span>
+                <span>{orderType === 'limit' ? 'Limit' : 'Market'}</span>
+              </div>
+              <div className="flex items-center justify-between border-b border-[#2b3139] py-3 text-xs">
+                <span className="text-gray-400">Estimated total</span>
+                <span className="font-semibold">
+                  {orderQuantity.trim() !== '' &&
+                  Number.isFinite(Number(orderQuantity)) &&
+                  Number(orderQuantity) > 0 &&
+                  (orderType === 'market' ||
+                    (orderPrice.trim() !== '' &&
+                      Number.isFinite(Number(orderPrice)) &&
+                      Number(orderPrice) > 0))
+                    ? `${(
+                        Number(orderQuantity) *
+                        (orderType === 'limit'
+                          ? Number(orderPrice)
+                          : ticker.price ?? 0)
+                      ).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })} USDT`
+                    : '-- USDT'}
+                </span>
+              </div>
+              {orderType === 'market' && (
+                <p className="mt-3 text-[11px] text-gray-500">
+                  Estimate uses the live ticker price, not executable order-book liquidity.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  window.alert(
+                    'Demo only: no order was submitted. Backend and matching engine are not connected.',
+                  )
+                }
+                className={`mt-auto rounded py-3 text-sm font-semibold text-white ${
+                  orderSide === 'buy'
+                    ? 'bg-emerald-600 hover:bg-emerald-500'
+                    : 'bg-rose-600 hover:bg-rose-500'
+                }`}
+              >
+                {orderSide === 'buy' ? 'Buy BTC' : 'Sell BTC'} · Demo
+              </button>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <footer className="px-5 pb-6 pt-2 text-center text-[11px] text-gray-500">
         Demo interface · No real orders are placed · Market data is illustrative
       </footer>
