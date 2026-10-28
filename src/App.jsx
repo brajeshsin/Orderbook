@@ -92,7 +92,7 @@ useEffect(() => {
           <span className="grid size-7 rotate-45 place-items-center border-[3px] border-[#f0b90b]">
             <span className="-rotate-45">B</span>
           </span>
-          Binance
+          Nowory Labs
         </a>
 
         <nav className="flex flex-1 flex-wrap gap-x-5 gap-y-2 text-xs sm:gap-x-7">
