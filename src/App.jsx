@@ -28,6 +28,8 @@ function App() {
   const [bookView, setBookView] = useState('both')
   const [displayMode, setDisplayMode] = useState('cumulative')
   const [pricePrecision, setPricePrecision] = useState(0.01)
+  const [timeframe, setTimeframe] = useState('1D')
+  const [chartRange, setChartRange] = useState('All')
   const [orderSide, setOrderSide] = useState('buy')
   const [orderType, setOrderType] = useState('limit')
   const [orderPrice, setOrderPrice] = useState('')
@@ -157,15 +159,42 @@ useEffect(() => {
             <span className="text-xs text-gray-500">Spot Market</span>
           </div>
 
-          <div className="flex flex-wrap gap-4 border-b border-[#2b3139] px-4 py-3 text-xs text-gray-400">
-            <span>Time</span>
-            <span className="text-yellow-400">1D</span>
-            <span>1W</span>
-            <span>1M</span>
-            <span className="ml-auto">Candlestick</span>
+          <div className="flex flex-wrap items-center gap-3 border-b border-[#2b3139] px-4 py-3 text-xs text-gray-400">
+            <span>Interval</span>
+            {['1s', '1m', '3m', '5m', '15m', '30m', '1H', '2H', '4H', '6H', '8H', '12H', '1D', '3D', '1W', '1M'].map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTimeframe(value)}
+                aria-pressed={timeframe === value}
+                className={`rounded px-1 py-0.5 ${
+                  timeframe === value
+                    ? 'font-semibold text-yellow-400'
+                    : 'hover:text-white'
+                }`}
+              >
+                {value}
+              </button>
+            ))}
+            <span className="ml-auto">Range</span>
+            {['3M', '6M', '1Y', 'All'].map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setChartRange(value)}
+                aria-pressed={chartRange === value}
+                className={`rounded px-1 py-0.5 ${
+                  chartRange === value
+                    ? 'font-semibold text-yellow-400'
+                    : 'hover:text-white'
+                }`}
+              >
+                {value}
+              </button>
+            ))}
           </div>
 
-          <MarketChart />
+          <MarketChart timeframe={timeframe} range={chartRange} />
 
           <div className="border-t border-[#2b3139] px-4 py-3 text-[11px] text-gray-500">
             Illustrative candlestick data · Not live market data
