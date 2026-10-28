@@ -1,4 +1,16 @@
-import { formatPrice, formatAmount } from '../../../utils/formatters'
+import { formatAmount } from '../../../utils/formatters'
+
+const formatGroupedPrice = (price, precision) => {
+  const decimalPlaces = Math.max(
+    0,
+    Math.min(8, (precision.toString().split('.')[1] || '').length),
+  )
+
+  return price.toLocaleString('en-US', {
+    minimumFractionDigits: decimalPlaces,
+    maximumFractionDigits: decimalPlaces,
+  })
+}
 
 export default function OrderRows({ orders, side, displayMode = 'cumulative', pricePrecision = 0.01 }) {
   const groupedOrders = Object.values(
@@ -66,7 +78,7 @@ export default function OrderRows({ orders, side, displayMode = 'cumulative', pr
                 side === 'ask' ? 'text-rose-500' : 'text-emerald-400'
               }`}
             >
-              {formatPrice(order.price)}
+              {formatGroupedPrice(order.price, pricePrecision)}
             </span>
             <span className="relative text-right">
               {formatAmount(order.amount)}

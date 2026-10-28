@@ -113,6 +113,10 @@ export default function MarketChart({ timeframe = '1D', range = 'All' }) {
   const chartRef = useRef(null)
   const seriesRef = useRef(null)
   const candlesRef = useRef([])
+  const rangeStartRef = useRef(ALL_HISTORY_START)
+  const loadingOlderRef = useRef(false)
+  const hasMoreHistoryRef = useRef(true)
+  const pendingLogicalRangeRef = useRef(null)
   const [candles, setCandles] = useState([])
   const [dataError, setDataError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -176,62 +180,44 @@ export default function MarketChart({ timeframe = '1D', range = 'All' }) {
       setLoading(true)
       setCandles([])
       candlesRef.current = []
+      loadingOlderRef.current = false
+      hasMoreHistoryRef.current = true
+      pendingLogicalRangeRef.current = null
 
       try {
         const interval = toApiInterval(timeframe)
-        const intervalMs = intervalMilliseconds[interval]
-
-        if (!intervalMs) {
+        if (!intervalMilliseconds[interval]) {
           throw new Error(`Unsupported chart interval: ${timeframe}`)
         }
 
         const now = Date.now()
         const startTime = getRangeStart(range, now)
-        const expectedCandles = Math.ceil((now - startTime) / intervalMs)
+        rangeStartRef.current = startTime
+        const url = new URL('https://api.binance.com/api/v3/klines')
+        url.searchParams.set('symbol', 'BTCUSDT')
+        url.searchParams.set('interval', interval)
+        url.searchParams.set('endTime', String(now))
+        url.searchParams.set('limit', '500')
 
-        if (expectedCandles > MAX_CANDLES) {
-          throw new Error(
-            `This range needs about ${expectedCandles.toLocaleString()} candles. The chart limit is ${MAX_CANDLES.toLocaleString()}; select a larger timeframe or shorter range.`,
-          )
+        const response = await fetch(url, { signal: controller.signal })
+        if (!response.ok) {
+          throw new Error(`Binance API request failed (${response.status})`)
         }
 
-        let nextStartTime = startTime
-        const rowsCollected = []
-
-        while (nextStartTime <= now && rowsCollected.length < MAX_CANDLES) {
-          const url = new URL('https://api.binance.com/api/v3/klines')
-          url.searchParams.set('symbol', 'BTCUSDT')
-          url.searchParams.set('interval', interval)
-          url.searchParams.set('startTime', String(nextStartTime))
-          url.searchParams.set('endTime', String(now))
-          url.searchParams.set('limit', String(API_BATCH_SIZE))
-
-          const response = await fetch(url, { signal: controller.signal })
-
-          if (!response.ok) {
-            throw new Error(`Binance API request failed (${response.status})`)
-          }
-
-          const rows = await response.json()
-
-          if (!Array.isArray(rows)) {
-            throw new Error('Unexpected Binance candle response')
-          }
-
-          if (rows.length === 0) break
-
-          rowsCollected.push(...rows)
-          nextStartTime = Number(rows[rows.length - 1][0]) + 1
-
-          if (rows.length < API_BATCH_SIZE) break
+        const rows = await response.json()
+        if (!Array.isArray(rows)) {
+          throw new Error('Unexpected Binance candle response')
         }
 
-        const parsed = parseKlines(rowsCollected).slice(0, MAX_CANDLES)
+        const parsed = parseKlines(rows).filter(
+          (candle) => candle.time * 1000 >= startTime,
+        )
+
         candlesRef.current = parsed
         setCandles(parsed)
 
         if (parsed.length === 0) {
-          setDataError('No historical candles were returned for this range.')
+          setDataError('No candles found in the selected range.')
         }
       } catch (error) {
         if (error.name !== 'AbortError') {
@@ -249,6 +235,98 @@ export default function MarketChart({ timeframe = '1D', range = 'All' }) {
   }, [timeframe, range])
 
   useEffect(() => {
+    if (loading || dataError || candlesRef.current.length === 0) return
+
+    let socket
+    let reconnectTimer
+    let reconnectDelay = 1000
+    let disposed = false
+
+    const interval = toApiInterval(timeframe)
+    const streamUrl = `wss://stream.binance.com:9443/ws/btcusdt@kline_${interval}`
+
+    function connect() {
+      if (disposed) return
+
+      socket = new WebSocket(streamUrl)
+
+      socket.onopen = () => {
+        reconnectDelay = 1000
+      }
+
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
+          const kline = message.k
+
+          if (!kline) return
+
+          const candle = {
+            time: Math.floor(kline.t / 1000),
+            open: Number(kline.o),
+            high: Number(kline.h),
+            low: Number(kline.l),
+            close: Number(kline.c),
+          }
+
+          const currentCandles = candlesRef.current
+          const lastCandle = currentCandles[currentCandles.length - 1]
+
+          if (lastCandle && candle.time < lastCandle.time) return
+
+          if (lastCandle && candle.time === lastCandle.time) {
+            currentCandles[currentCandles.length - 1] = candle
+          } else {
+            currentCandles.push(candle)
+
+            if (currentCandles.length > MAX_CANDLES) {
+              currentCandles.shift()
+            }
+          }
+
+          const series = seriesRef.current
+          if (series) {
+            const point =
+              chartType === 'line' || chartType === 'area'
+                ? { time: candle.time, value: candle.close }
+                : candle
+
+            series.update(point)
+          }
+        } catch {
+          // Ignore malformed WebSocket messages and keep the stream alive.
+        }
+      }
+
+      socket.onclose = () => {
+        if (disposed) return
+
+        reconnectTimer = setTimeout(connect, reconnectDelay)
+        reconnectDelay = Math.min(reconnectDelay * 2, 30000)
+      }
+
+      socket.onerror = () => {
+        socket?.close()
+      }
+    }
+
+    connect()
+
+    return () => {
+      disposed = true
+      clearTimeout(reconnectTimer)
+
+      if (socket) {
+        socket.onopen = null
+        socket.onmessage = null
+        socket.onerror = null
+        socket.onclose = null
+        socket.close()
+      }
+    }
+  }, [timeframe, range, loading, dataError, chartType])
+
+  useEffect(() => {
     const chart = chartRef.current
     if (!chart) return
 
@@ -262,16 +340,165 @@ export default function MarketChart({ timeframe = '1D', range = 'All' }) {
       getSeriesOptions(chartType),
     )
 
-    const timeframeCandles = candles
+    seriesRef.current = series
+
+    return () => {
+      if (seriesRef.current !== series) return
+
+      seriesRef.current = null
+
+      if (chartRef.current === chart) {
+        chart.removeSeries(series)
+      }
+    }
+  }, [chartType])
+
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+
     const data =
       chartType === 'line' || chartType === 'area'
-        ? timeframeCandles.map(({ time, close }) => ({ time, value: close }))
-        : timeframeCandles
+        ? candles.map(({ time, close }) => ({ time, value: close }))
+        : candles
 
     series.setData(data)
-    seriesRef.current = series
-    chart.timeScale().fitContent()
-  }, [chartType, timeframe, candles])
+
+    const pendingRange = pendingLogicalRangeRef.current
+    if (pendingRange) {
+      chartRef.current?.timeScale().setVisibleLogicalRange(pendingRange)
+      pendingLogicalRangeRef.current = null
+    }
+  }, [candles, chartType])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || loading || dataError || candlesRef.current.length === 0) {
+      return
+    }
+
+    let disposed = false
+    const timeScale = chart.timeScale()
+
+    async function loadOlderCandles() {
+      const currentCandles = candlesRef.current
+
+      if (
+        disposed ||
+        loadingOlderRef.current ||
+        !hasMoreHistoryRef.current ||
+        currentCandles.length === 0 ||
+        currentCandles.length >= MAX_CANDLES
+      ) {
+        if (currentCandles.length >= MAX_CANDLES) {
+          hasMoreHistoryRef.current = false
+        }
+        return
+      }
+
+      loadingOlderRef.current = true
+
+      try {
+        const interval = toApiInterval(timeframe)
+        const oldestTime = currentCandles[0].time * 1000
+
+        if (oldestTime <= rangeStartRef.current) {
+          hasMoreHistoryRef.current = false
+          return
+        }
+
+        const url = new URL('https://api.binance.com/api/v3/klines')
+        url.searchParams.set('symbol', 'BTCUSDT')
+        url.searchParams.set('interval', interval)
+        url.searchParams.set('endTime', String(oldestTime - 1))
+        url.searchParams.set('limit', String(API_BATCH_SIZE))
+
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(`Binance history request failed (${response.status})`)
+        }
+
+        const rows = await response.json()
+        if (!Array.isArray(rows)) {
+          throw new Error('Unexpected Binance history response')
+        }
+
+        if (disposed) return
+
+        const existingTimes = new Set(
+          candlesRef.current.map((candle) => candle.time),
+        )
+
+        const olderCandles = parseKlines(rows).filter(
+          (candle) =>
+            candle.time * 1000 >= rangeStartRef.current &&
+            candle.time < candlesRef.current[0].time &&
+            !existingTimes.has(candle.time),
+        )
+
+        if (rows.length < API_BATCH_SIZE) {
+          hasMoreHistoryRef.current = false
+        }
+
+        if (olderCandles.length === 0) {
+          hasMoreHistoryRef.current = false
+          return
+        }
+
+        const latestVisibleRange = timeScale.getVisibleLogicalRange()
+        const availableSlots = MAX_CANDLES - candlesRef.current.length
+        const acceptedOlderCandles = olderCandles.slice(-availableSlots)
+
+        if (acceptedOlderCandles.length === 0) {
+          hasMoreHistoryRef.current = false
+          return
+        }
+
+        if (latestVisibleRange) {
+          pendingLogicalRangeRef.current = {
+            from: latestVisibleRange.from + acceptedOlderCandles.length,
+            to: latestVisibleRange.to + acceptedOlderCandles.length,
+          }
+        }
+
+        const mergedCandles = [
+          ...acceptedOlderCandles,
+          ...candlesRef.current,
+        ]
+
+        candlesRef.current = mergedCandles
+        setCandles(mergedCandles)
+
+        if (mergedCandles.length >= MAX_CANDLES) {
+          hasMoreHistoryRef.current = false
+        }
+
+        const earliestLoaded = mergedCandles[0]?.time * 1000
+        if (earliestLoaded <= rangeStartRef.current) {
+          hasMoreHistoryRef.current = false
+        }
+      } catch (error) {
+        if (!disposed) {
+          console.error('Unable to load older Binance candles:', error)
+        }
+      } finally {
+        loadingOlderRef.current = false
+      }
+    }
+
+    function handleVisibleRangeChange(logicalRange) {
+      if (logicalRange && logicalRange.from < 10) {
+        void loadOlderCandles()
+      }
+    }
+
+    timeScale.subscribeVisibleLogicalRangeChange(handleVisibleRangeChange)
+
+    return () => {
+      disposed = true
+      timeScale.unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange)
+    }
+  }, [timeframe, range, loading, dataError])
 
   return (
     <div className="relative">
@@ -337,7 +564,7 @@ export default function MarketChart({ timeframe = '1D', range = 'All' }) {
       />
 
       <div className="border-t border-[#2b3139] px-4 py-2 text-[11px] text-gray-500">
-        Historical candles from Binance Spot API · Live updates not connected yet
+        Historical candles from Binance Spot API · Live BTCUSDT kline stream
       </div>
     </div>
   )
